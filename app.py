@@ -1,7 +1,13 @@
 import streamlit as st
-import cv2
-import mediapipe as mp
 import numpy as np
+
+# Verificação defensiva das bibliotecas de Visao Computacional
+try:
+    import cv2
+    import mediapipe as mp
+    HAS_VISION = True
+except ImportError:
+    HAS_VISION = False
 
 # Configuração da Página
 st.set_page_config(
@@ -22,7 +28,7 @@ opcao = st.sidebar.radio(
 )
 
 # -----------------------------------------------------------------------------
-# MÓDULO 1: SIMULADOR DE WODS & CARGAS (Inteligência de Dados / Modelos Matemáticos)
+# MÓDULO 1: SIMULADOR DE WODS & CARGAS (Inteligência de Dados)
 # -----------------------------------------------------------------------------
 if opcao == "Simulador de WODs & Cargas":
     st.header("📊 Simulador de Desempenho e Cargas de Treino")
@@ -68,88 +74,91 @@ elif opcao == "Análise Biomecânica de Movimento":
     st.header("📹 Análise Biomecânica via Visão Computacional")
     st.caption("Identificação de pontos articulares e medição de ângulos em tempo real com MediaPipe.")
 
-    # Função Auxiliar para Calcular Ângulo Articular
-    def calcular_angulo(a, b, c):
-        a = np.array(a) # Quadril
-        b = np.array(b) # Joelho
-        c = np.array(c) # Tornozelo
-        
-        radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
-        angulo = np.abs(radians*180.0/np.pi)
-        
-        if angulo > 180.0:
-            angulo = 360 - angulo
+    if not HAS_VISION:
+        st.warning("⚠️ **Módulo de Visão Computacional Desativado:** As bibliotecas `opencv-python-headless` e `mediapipe` não foram encontradas no servidor. Adicione-as ao seu `requirements.txt` para habilitar a análise de vídeos.")
+    else:
+        # Função Auxiliar para Calcular Ângulo Articular
+        def calcular_angulo(a, b, c):
+            a = np.array(a) # Quadril
+            b = np.array(b) # Joelho
+            c = np.array(c) # Tornozelo
             
-        return angulo
-
-    arquivo_video = st.file_uploader("Envie o vídeo do seu movimento (Agachamento, Clean, Snatch):", type=["mp4", "mov", "avi"])
-
-    if arquivo_video is not None:
-        # Salva o arquivo temporariamente
-        with open("temp_video.mp4", "wb") as f:
-            f.write(arquivo_video.read())
-
-        st.success("Vídeo carregado com sucesso! Processando biometria...")
-
-        # Setup MediaPipe Pose
-        mp_pose = mp.solutions.pose
-        mp_drawing = mp.solutions.drawing_utils
-        pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-
-        cap = cv2.VideoCapture("temp_video.mp4")
-        
-        # Container estático no Streamlit para evitar erros no React DOM
-        frame_window = st.empty()
-
-        angulos_joelho = []
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            # Converte cores BGR para RGB
-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = pose.process(image)
-
-            if results.pose_landmarks:
-                landmarks = results.pose_landmarks.landmark
-
-                # Posições do Quadril, Joelho e Tornozelo Esquerdos
-                hip = [landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].x, landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].y]
-                knee = [landmarks[mp_pose.PoseLandmark.LEFT_KNEE.value].x, landmarks[mp_pose.PoseLandmark.LEFT_KNEE.value].y]
-                ankle = [landmarks[mp_pose.PoseLandmark.LEFT_ANKLE.value].x, landmarks[mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
-
-                # Ângulo do Joelho
-                angulo_j = calcular_angulo(hip, knee, ankle)
-                angulos_joelho.append(angulo_j)
-
-                # Desenha Esqueleto na Imagem
-                mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-
-                # Escreve o Ângulo na Tela do Vídeo
-                cv2.putText(image, f"Joelho: {int(angulo_j)} deg", 
-                            tuple(np.multiply(knee, [image.shape[1], image.shape[0]]).astype(int)), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
-
-            # Atualiza a janela no Streamlit
-            frame_window.image(image, channels="RGB", use_column_width=True)
-
-        cap.release()
-        pose.close()
-
-        # Análise Estatística dos Dados de Movimento
-        if len(angulos_joelho) > 0:
-            st.markdown("---")
-            st.subheader("📈 Dados Biomecânicos Extraídos")
+            radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
+            angulo = np.abs(radians*180.0/np.pi)
             
-            min_ang = min(angulos_joelho)
-            st.write(f"**Menor ângulo de joelho atingido (Profundidade Máxima):** {min_ang:.1f}°")
+            if angulo > 180.0:
+                angulo = 360 - angulo
+                
+            return angulo
+
+        arquivo_video = st.file_uploader("Envie o vídeo do seu movimento (Agachamento, Clean, Snatch):", type=["mp4", "mov", "avi"])
+
+        if arquivo_video is not None:
+            # Salva o arquivo temporariamente
+            with open("temp_video.mp4", "wb") as f:
+                f.write(arquivo_video.read())
+
+            st.success("Vídeo carregado com sucesso! Processando biometria...")
+
+            # Setup MediaPipe Pose
+            mp_pose = mp.solutions.pose
+            mp_drawing = mp.solutions.drawing_utils
+            pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+            cap = cv2.VideoCapture("temp_video.mp4")
             
-            if min_ang <= 90.0:
-                st.success("✅ **Profundidade Validada:** O agachamento quebrou a paralela (ângulo do joelho ≤ 90°).")
-            else:
-                st.warning("⚠️ **Atenção:** O agachamento não quebrou a paralela (ângulo do joelho > 90°).")
+            # Container estático no Streamlit para evitar erros no React DOM
+            frame_window = st.empty()
+
+            angulos_joelho = []
+
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # Converte cores BGR para RGB
+                image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = pose.process(image)
+
+                if results.pose_landmarks:
+                    landmarks = results.pose_landmarks.landmark
+
+                    # Posições do Quadril, Joelho e Tornozelo Esquerdos
+                    hip = [landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].x, landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].y]
+                    knee = [landmarks[mp_pose.PoseLandmark.LEFT_KNEE.value].x, landmarks[mp_pose.PoseLandmark.LEFT_KNEE.value].y]
+                    ankle = [landmarks[mp_pose.PoseLandmark.LEFT_ANKLE.value].x, landmarks[mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
+
+                    # Ângulo do Joelho
+                    angulo_j = calcular_angulo(hip, knee, ankle)
+                    angulos_joelho.append(angulo_j)
+
+                    # Desenha Esqueleto na Imagem
+                    mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+                    # Escreve o Ângulo na Tela do Vídeo
+                    cv2.putText(image, f"Joelho: {int(angulo_j)} deg", 
+                                tuple(np.multiply(knee, [image.shape[1], image.shape[0]]).astype(int)), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+
+                # Atualiza a janela no Streamlit
+                frame_window.image(image, channels="RGB", use_column_width=True)
+
+            cap.release()
+            pose.close()
+
+            # Análise Estatística dos Dados de Movimento
+            if len(angulos_joelho) > 0:
+                st.markdown("---")
+                st.subheader("📈 Dados Biomecânicos Extraídos")
+                
+                min_ang = min(angulos_joelho)
+                st.write(f"**Menor ângulo de joelho atingido (Profundidade Máxima):** {min_ang:.1f}°")
+                
+                if min_ang <= 90.0:
+                    st.success("✅ **Profundidade Validada:** O agachamento quebrou a paralela (ângulo do joelho ≤ 90°).")
+                else:
+                    st.warning("⚠️ **Atenção:** O agachamento não quebrou a paralela (ângulo do joelho > 90°).")
 
 # -----------------------------------------------------------------------------
 # MÓDULO 3: TIMER INTERATIVO
@@ -159,9 +168,9 @@ elif opcao == "Timer Interativo":
     st.caption("Timer para acompanhamento dos treinos.")
 
     tipo_timer = st.selectbox("Escolha o Formato:", ["AMRAP", "EMOM", "For Time"], key="timer_type")
-    
     minutos = st.number_input("Duração (Minutos):", min_value=1, max_value=60, value=10, key="timer_mins")
     
     st.subheader(f"Formato Selecionado: {tipo_timer} - {minutos} min")
     st.info("Utilize este módulo no monitor para controle do WOD.")
+
 
